@@ -1,0 +1,168 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+    branches: [main]
+
+jobs:
+  release:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write  # Required for AWS OIDC authentication
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.5.13"
+
+      - name: Ensure Python 3.12 with UV
+        run: uv python install 3.12
+
+      - name: Check commit message
+        id: check
+        run: |
+          MSG=$(git log -1 --pretty=%B)
+          if [[ "$MSG" =~ ^(feat|fix)(\(.*\))?:  ]] || [[ "$MSG" == *"BREAKING"* ]]; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Calculate version
+        if: steps.check.outputs.should_release == 'true'
+        id: version
+        run: |
+          CURRENT_VERSION=$(uv run --python 3.12 python - <<'EOF'
+          import tomllib
+          with open('pyproject.toml', 'rb') as f:
+              print(tomllib.load(f)['project']['version'])
+          EOF
+          )
+          MSG=$(git log -1 --pretty=%B)
+
+          if [[ "$MSG" == *"BREAKING"* ]]; then
+            VERSION_BUMP="major"
+          elif [[ "$MSG" == feat:* ]] || [[ "$MSG" == feat\(*; then
+            VERSION_BUMP="minor"
+          else
+            VERSION_BUMP="patch"
+          fi
+
+          NEW_VERSION=$(CURRENT_VERSION="$CURRENT_VERSION" VERSION_BUMP="$VERSION_BUMP" uv run --python 3.12 python - <<'EOF'
+          import os
+
+          version = os.environ["CURRENT_VERSION"].strip()
+          bump = os.environ["VERSION_BUMP"].strip()
+
+          parts = version.split('.')
+          if len(parts) != 3 or not all(p.isdigit() for p in parts):
+              raise SystemExit(f"Invalid semantic version: {version!r}")
+
+          major, minor, patch = map(int, parts)
+
+          if bump == 'major':
+              major, minor, patch = major + 1, 0, 0
+          elif bump == 'minor':
+              minor, patch = minor + 1, 0
+          else:
+              patch += 1
+
+          print(f"{major}.{minor}.{patch}")
+          EOF
+          )
+
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update version files
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          # Update only the project version in pyproject.toml, not ruff target-version
+          uv run --python 3.12 python - <<'EOF'
+          import re
+          import os
+
+          new_version = os.environ.get("NEW_VERSION", "${{ steps.version.outputs.new_version }}")
+
+          with open("pyproject.toml", "r") as f:
+              content = f.read()
+
+          # Only update version in [project] section
+          content = re.sub(
+              r'(\[project\][^\[]*version = ")[^"]+(")',
+              rf'\g<1>{new_version}\g<2>',
+              content,
+              count=1
+          )
+
+          with open("pyproject.toml", "w") as f:
+              f.write(content)
+          EOF
+
+          echo "__version__ = \"${{ steps.version.outputs.new_version }}\"" > src/hermod/__version__.py
+
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add pyproject.toml src/hermod/__version__.py
+          git commit -m "chore: bump version to ${{ steps.version.outputs.new_version }}"
+          git push
+
+      - name: Configure AWS credentials
+        if: steps.check.outputs.should_release == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::881490112168:role/dev-hermod-codeartifact-publisher
+          aws-region: us-east-2
+
+      - name: Configure CodeArtifact
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          # Get CodeArtifact authorization token
+          CODEARTIFACT_TOKEN=$(aws codeartifact get-authorization-token \
+            --domain degree-analytics \
+            --domain-owner 881490112168 \
+            --region us-east-2 \
+            --query authorizationToken \
+            --output text)
+
+          # Mask token in logs for security
+          echo "::add-mask::$CODEARTIFACT_TOKEN"
+
+          # Configure uv to use CodeArtifact
+          export UV_PUBLISH_URL="https://degree-analytics-881490112168.d.codeartifact.us-east-2.amazonaws.com/pypi/degree-analytics-pypi/"
+          export UV_PUBLISH_USERNAME=aws
+          export UV_PUBLISH_PASSWORD="$CODEARTIFACT_TOKEN"
+
+          echo "UV_PUBLISH_URL=$UV_PUBLISH_URL" >> $GITHUB_ENV
+          echo "UV_PUBLISH_USERNAME=aws" >> $GITHUB_ENV
+          echo "UV_PUBLISH_PASSWORD=$CODEARTIFACT_TOKEN" >> $GITHUB_ENV
+
+      - name: Build and publish to CodeArtifact
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          # Build the package
+          uv build
+
+          # Publish to CodeArtifact
+          uv publish \
+            --publish-url "$UV_PUBLISH_URL" \
+            --username "$UV_PUBLISH_USERNAME" \
+            --password "$UV_PUBLISH_PASSWORD"
+
+      - name: Create release
+        if: steps.check.outputs.should_release == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.new_version }}
+          target_commitish: ${{ github.event.workflow_run.head_sha }}
+          name: v${{ steps.version.outputs.new_version }}
+          generate_release_notes: true
