@@ -1,5 +1,6 @@
 """Tests for Hermod CLI."""
 
+import json
 from unittest.mock import patch
 
 import pytest
@@ -102,8 +103,6 @@ def test_collect_command_json_output(runner: CliRunner) -> None:
                     result = runner.invoke(app, ["collect", "--json"])
 
                     assert result.exit_code == 0
-                    import json
-
                     output = json.loads(result.stdout)
                     assert output["developer"] == "Chad"
                     assert output["timeout_seconds"] is None
@@ -238,7 +237,6 @@ def test_submit_command_success(tmp_path):
         "codex": {"totals": {"totalCost": 3.0}},
     }
     submission_file = tmp_path / "ai_usage_test.json"
-    import json
     submission_file.write_text(json.dumps(submission_data))
 
     with patch("hermod.cli.subprocess.run") as mock_run:
