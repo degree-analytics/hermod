@@ -26,7 +26,8 @@ def _validate_timeout(value: int) -> int:
     """Validate timeout bounds."""
     if value < MIN_COMMAND_TIMEOUT_SECONDS or value > MAX_COMMAND_TIMEOUT_SECONDS:
         raise ValueError(
-            f"Timeout must be between {MIN_COMMAND_TIMEOUT_SECONDS} and {MAX_COMMAND_TIMEOUT_SECONDS} seconds"
+            f"Timeout must be between {MIN_COMMAND_TIMEOUT_SECONDS} and "
+            f"{MAX_COMMAND_TIMEOUT_SECONDS} seconds"
         )
     return value
 

@@ -28,8 +28,9 @@ def get_git_user_email() -> str:
         return result.stdout.strip()
     except subprocess.CalledProcessError:
         raise RuntimeError(
-            "Git user.email not configured. Run: git config --global user.email 'you@example.com'"
-        )
+            "Git user.email not configured. "
+            "Run: git config --global user.email 'you@example.com'"
+        ) from None
 
 
 def get_git_user_name() -> Optional[str]:
@@ -62,9 +63,15 @@ def load_developer_mappings() -> dict:
     """Load developer name mappings from config file.
 
     Returns:
-        Dictionary with email_to_name and name_to_canonical mappings
+        Dictionary with email_to_name and name_to_canonical mappings.
+        Returns empty mappings if config file doesn't exist.
     """
     config_path = Path(__file__).parent.parent.parent / "config" / "developer_names.json"
+
+    # Return empty mappings if config file doesn't exist
+    if not config_path.exists():
+        logger.debug(f"Config file not found: {config_path}. Using empty mappings.")
+        return {"email_to_canonical": {}, "name_to_canonical": {}}
 
     with open(config_path) as f:
         config = json.load(f)
@@ -131,8 +138,8 @@ def detect_developer() -> str:
 
         if re.match(r"^[a-zA-Z][a-zA-Z0-9_-]+$", fallback):
             logger.warning(
-                f"No mapping found in config/developer_names.json for email '{email}' or git name '{git_name}'. "
-                f"Using email username as fallback: {fallback}. "
+                f"No mapping found in config/developer_names.json for email '{email}' "
+                f"or git name '{git_name}'. Using email username as fallback: {fallback}. "
                 f"Consider adding this developer to config/developer_names.json for proper mapping."
             )
             return fallback
@@ -141,5 +148,6 @@ def detect_developer() -> str:
     raise RuntimeError(
         f"Could not auto-detect developer from git config. "
         f"Git email: '{email}', Git name: '{git_name}'. "
-        f"Please add this developer to config/developer_names.json or use --developer flag to specify manually."
+        f"Please add this developer to config/developer_names.json or use --developer flag "
+        f"to specify manually."
     )

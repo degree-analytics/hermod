@@ -111,7 +111,8 @@ def collect(
     if developer is not None:
         if not DEVELOPER_NAME_PATTERN.match(developer):
             error_msg = (
-                f"Invalid developer name. Must be {DEVELOPER_NAME_MIN_LENGTH}-{DEVELOPER_NAME_MAX_LENGTH} "
+                f"Invalid developer name. Must be "
+                f"{DEVELOPER_NAME_MIN_LENGTH}-{DEVELOPER_NAME_MAX_LENGTH} "
                 "characters and contain only letters, numbers, spaces, underscores, and hyphens."
             )
             if json_output:
@@ -147,7 +148,7 @@ def collect(
                 console.print(json.dumps({"error": f"Failed to detect developer: {e}"}))
             else:
                 console.print(f"[red]Error:[/red] Failed to detect developer: {e}")
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=1) from None
 
         # Validate auto-detected name as well
         if not DEVELOPER_NAME_PATTERN.match(developer):
@@ -176,7 +177,7 @@ def collect(
             console.print(json.dumps({"error": f"Failed to collect usage data: {e}"}))
         else:
             console.print(f"[red]Error:[/red] Failed to collect usage data: {e}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
 
     # Save submission
     try:
@@ -186,7 +187,7 @@ def collect(
             console.print(json.dumps({"error": f"Failed to save submission: {e}"}))
         else:
             console.print(f"[red]Error:[/red] Failed to save submission: {e}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
 
     # Output results
     if json_output:
@@ -202,7 +203,8 @@ def collect(
     else:
         console.print(f"[green]✓[/green] Successfully collected usage data for {developer}")
         console.print(
-            f"[blue]Date range:[/blue] {data['metadata']['date_range']['start']} to {data['metadata']['date_range']['end']}"
+            f"[blue]Date range:[/blue] {data['metadata']['date_range']['start']} to "
+            f"{data['metadata']['date_range']['end']}"
         )
         console.print(f"[blue]Output file:[/blue] {output_file}")
         if command_timeout_seconds:
@@ -233,7 +235,7 @@ def collect(
 
 @app.command()
 def submit(
-    submission_dir: Optional[Path] = typer.Option(
+    submission_dir: Optional[Path] = typer.Option(  # noqa: B008
         None,
         "--submission-dir",
         help="Directory containing submission files (default: data/ai_usage/submissions)",
@@ -278,7 +280,7 @@ def submit(
             raise typer.Exit(code=1)
     except subprocess.TimeoutExpired:
         console.print("[red]❌ GitHub CLI authentication check timed out[/red]")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
 
     # Find most recent submission file
     console.print("[blue]📊 Finding submission file...[/blue]")
@@ -305,7 +307,7 @@ def submit(
         developer = data["metadata"]["developer"]
     except (json.JSONDecodeError, KeyError) as e:
         console.print(f"[red]❌ Invalid submission file format: {e}[/red]")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
 
     # Base64 encode the data
     console.print("[blue]🔐 Encoding submission data...[/blue]")
@@ -333,14 +335,16 @@ def submit(
         )
 
         if result.returncode != 0:
-            console.print(f"[red]❌ Failed to submit to GitHub Actions[/red]")
-            error_msg = result.stderr.decode() if isinstance(result.stderr, bytes) else result.stderr
+            console.print("[red]❌ Failed to submit to GitHub Actions[/red]")
+            error_msg = (
+                result.stderr.decode() if isinstance(result.stderr, bytes) else result.stderr
+            )
             console.print(f"   Error: {error_msg}")
             raise typer.Exit(code=1)
 
     except subprocess.TimeoutExpired:
         console.print("[red]❌ GitHub Actions workflow trigger timed out[/red]")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
 
     # Get repository info for the success message
     try:
@@ -350,7 +354,9 @@ def submit(
             check=True,
             timeout=10,
         )
-        repo_name_bytes = result.stdout.decode() if isinstance(result.stdout, bytes) else result.stdout
+        repo_name_bytes = (
+            result.stdout.decode() if isinstance(result.stdout, bytes) else result.stdout
+        )
         repo_name = repo_name_bytes.strip()
         actions_url = f"https://github.com/{repo_name}/actions"
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
