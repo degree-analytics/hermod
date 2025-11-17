@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import subprocess  # nosec B404 - Legitimate CLI integration with validation
 from pathlib import Path
 from typing import Optional
 
@@ -228,6 +229,139 @@ def collect(
         table.add_row("Total", f"${claude_total + codex_total:.2f}", style="bold")
 
         console.print(table)
+
+
+@app.command()
+def submit(
+    submission_dir: Optional[Path] = typer.Option(
+        None,
+        "--submission-dir",
+        help="Directory containing submission files (default: data/ai_usage/submissions)",
+    ),
+):
+    """Submit AI usage data to GitHub Actions workflow.
+
+    This command:
+    1. Checks that gh CLI is installed and authenticated
+    2. Finds the most recent submission file
+    3. Base64 encodes the submission data
+    4. Triggers the ai-usage-ingestion GitHub Actions workflow
+    5. Cleans up the submission file after successful submission
+    """
+    import base64
+    import shutil
+
+    # Use default submission directory if not provided
+    if submission_dir is None:
+        submission_dir = Path("data/ai_usage/submissions")
+
+    # Check prerequisites
+    console.print("[blue]🔍 Checking prerequisites...[/blue]")
+
+    # Check gh CLI is installed
+    if shutil.which("gh") is None:
+        console.print("[red]❌ GitHub CLI (gh) is not installed[/red]")
+        console.print("   Install with: brew install gh")
+        raise typer.Exit(code=1)
+
+    # Check gh is authenticated
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "status"],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            console.print("[red]❌ GitHub CLI is not authenticated[/red]")
+            console.print("   Run: gh auth login")
+            raise typer.Exit(code=1)
+    except subprocess.TimeoutExpired:
+        console.print("[red]❌ GitHub CLI authentication check timed out[/red]")
+        raise typer.Exit(code=1)
+
+    # Find most recent submission file
+    console.print("[blue]📊 Finding submission file...[/blue]")
+
+    submission_files = sorted(
+        submission_dir.glob("ai_usage_*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
+    if not submission_files:
+        console.print("[red]❌ No submission file found[/red]")
+        console.print(f"   Expected files matching: {submission_dir}/ai_usage_*.json")
+        console.print("   Run 'hermod collect' first to generate submission data")
+        raise typer.Exit(code=1)
+
+    submission_file = submission_files[0]
+    console.print(f"[green]✓[/green] Found: {submission_file}")
+
+    # Load and extract developer name
+    try:
+        with open(submission_file, "r") as f:
+            data = json.load(f)
+        developer = data["metadata"]["developer"]
+    except (json.JSONDecodeError, KeyError) as e:
+        console.print(f"[red]❌ Invalid submission file format: {e}[/red]")
+        raise typer.Exit(code=1)
+
+    # Base64 encode the data
+    console.print("[blue]🔐 Encoding submission data...[/blue]")
+    with open(submission_file, "rb") as f:
+        data_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    # Trigger GitHub Actions workflow
+    console.print("[blue]🚀 Submitting to GitHub Actions...[/blue]")
+
+    try:
+        result = subprocess.run(
+            [
+                "gh",
+                "workflow",
+                "run",
+                "ai-usage-ingestion.yml",
+                "-f",
+                f"developer={developer}",
+                "-f",
+                f"data_base64={data_b64}",
+            ],
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+
+        if result.returncode != 0:
+            console.print(f"[red]❌ Failed to submit to GitHub Actions[/red]")
+            error_msg = result.stderr.decode() if isinstance(result.stderr, bytes) else result.stderr
+            console.print(f"   Error: {error_msg}")
+            raise typer.Exit(code=1)
+
+    except subprocess.TimeoutExpired:
+        console.print("[red]❌ GitHub Actions workflow trigger timed out[/red]")
+        raise typer.Exit(code=1)
+
+    # Get repository info for the success message
+    try:
+        result = subprocess.run(
+            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+            capture_output=True,
+            check=True,
+            timeout=10,
+        )
+        repo_name_bytes = result.stdout.decode() if isinstance(result.stdout, bytes) else result.stdout
+        repo_name = repo_name_bytes.strip()
+        actions_url = f"https://github.com/{repo_name}/actions"
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        actions_url = "GitHub Actions"
+
+    console.print(f"[green]✅ Submitted![/green] Check {actions_url}")
+
+    # Clean up submission file
+    console.print("[blue]📝 Cleaning up local submission file...[/blue]")
+    submission_file.unlink()
+    console.print("[green]✓[/green] Done")
 
 
 if __name__ == "__main__":
