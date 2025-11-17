@@ -224,3 +224,90 @@ def test_collect_command_with_timeout_override(runner: CliRunner) -> None:
                 assert result.exit_code == 0
                 mock_collect.assert_called_once_with("Chad", 7, command_timeout_seconds=300)
                 assert "Command timeout override" in result.stdout
+
+
+def test_submit_command_success(tmp_path):
+    """Test submit command successfully submits data to GitHub Actions."""
+    # Create a fake submission file
+    submission_data = {
+        "metadata": {
+            "developer": "test-developer",
+            "date_range": {"start": "2025-11-10", "end": "2025-11-17"},
+        },
+        "claude_code": {"totals": {"totalCost": 5.0}},
+        "codex": {"totals": {"totalCost": 3.0}},
+    }
+    submission_file = tmp_path / "ai_usage_test.json"
+    import json
+    submission_file.write_text(json.dumps(submission_data))
+
+    with patch("hermod.cli.subprocess.run") as mock_run:
+        # Mock gh auth status (success)
+        # Mock gh workflow run (success)
+        from unittest.mock import MagicMock
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch("hermod.cli.Path.glob") as mock_glob:
+            mock_glob.return_value = [submission_file]
+
+            from typer.testing import CliRunner
+            from hermod.cli import app
+
+            runner = CliRunner()
+            result = runner.invoke(app, ["submit"])
+
+            assert result.exit_code == 0
+            assert "Submitted!" in result.stdout
+            assert not submission_file.exists()  # File should be deleted after submission
+
+
+def test_submit_command_no_gh_cli():
+    """Test submit command fails gracefully when gh CLI not installed."""
+    import shutil
+    with patch("shutil.which", return_value=None):
+        from typer.testing import CliRunner
+        from hermod.cli import app
+
+        runner = CliRunner()
+        result = runner.invoke(app, ["submit"])
+
+        assert result.exit_code == 1
+        assert "GitHub CLI (gh) is not installed" in result.stdout
+
+
+def test_submit_command_gh_not_authenticated():
+    """Test submit command fails when gh CLI not authenticated."""
+    import shutil
+    with patch("shutil.which", return_value="/usr/local/bin/gh"):
+        with patch("hermod.cli.subprocess.run") as mock_run:
+            # gh auth status returns non-zero when not authenticated
+            from unittest.mock import MagicMock
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="not logged in")
+
+            from typer.testing import CliRunner
+            from hermod.cli import app
+
+            runner = CliRunner()
+            result = runner.invoke(app, ["submit"])
+
+            assert result.exit_code == 1
+            assert "GitHub CLI is not authenticated" in result.stdout
+
+
+def test_submit_command_no_submission_file():
+    """Test submit command fails when no submission file found."""
+    import shutil
+    with patch("shutil.which", return_value="/usr/local/bin/gh"):
+        with patch("hermod.cli.subprocess.run") as mock_run:
+            from unittest.mock import MagicMock
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+            with patch("hermod.cli.Path.glob", return_value=[]):
+                from typer.testing import CliRunner
+                from hermod.cli import app
+
+                runner = CliRunner()
+                result = runner.invoke(app, ["submit"])
+
+                assert result.exit_code == 1
+                assert "No submission file found" in result.stdout
