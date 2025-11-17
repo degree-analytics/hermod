@@ -32,7 +32,7 @@ jobs:
         id: check
         run: |
           MSG=$(git log -1 --pretty=%B)
-          if [[ "$MSG" =~ ^(feat|fix)(\(.*\))?:  ]] || [[ "$MSG" == *"BREAKING"* ]]; then
+          if [[ "$MSG" =~ ^(feat|fix)(\(.*\))?: ]] || [[ "$MSG" == *"BREAKING"* ]]; then
             echo "should_release=true" >> $GITHUB_OUTPUT
           else
             echo "should_release=false" >> $GITHUB_OUTPUT
@@ -52,7 +52,7 @@ jobs:
 
           if [[ "$MSG" == *"BREAKING"* ]]; then
             VERSION_BUMP="major"
-          elif [[ "$MSG" == feat:* ]] || [[ "$MSG" == feat\(*; then
+          elif [[ "$MSG" == feat:* ]] || [[ "$MSG" == feat\(* ]]; then
             VERSION_BUMP="minor"
           else
             VERSION_BUMP="patch"
