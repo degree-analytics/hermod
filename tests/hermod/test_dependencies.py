@@ -2,7 +2,11 @@
 
 from unittest.mock import patch
 
-from hermod.dependencies import check_all_dependencies, check_ccusage_installed
+from hermod.dependencies import (
+    check_all_dependencies,
+    check_ccusage_codex_installed,
+    check_ccusage_installed,
+)
 
 
 def test_check_ccusage_installed_success() -> None:
@@ -33,3 +37,17 @@ def test_check_all_dependencies_missing() -> None:
         with patch("hermod.dependencies.check_ccusage_codex_installed", return_value=False):
             result = check_all_dependencies()
             assert result == {"ccusage": False, "ccusage-codex": False}
+
+
+def test_check_ccusage_codex_installed_success() -> None:
+    """Test detecting installed ccusage-codex."""
+    with patch("shutil.which", return_value="/usr/local/bin/ccusage-codex"):
+        is_installed = check_ccusage_codex_installed()
+        assert is_installed is True
+
+
+def test_check_ccusage_codex_installed_missing() -> None:
+    """Test detecting missing ccusage-codex."""
+    with patch("shutil.which", return_value=None):
+        is_installed = check_ccusage_codex_installed()
+        assert is_installed is False

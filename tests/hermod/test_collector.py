@@ -196,3 +196,15 @@ def test_run_command_non_dict_response() -> None:
 
         with pytest.raises(ValueError, match="Expected dict response"):
             run_command(["ccusage", "daily"])
+
+
+def test_run_command_called_process_error() -> None:
+    """Test handling of CalledProcessError (command failure)."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.side_effect = subprocess.CalledProcessError(
+            returncode=1, cmd=["ccusage", "daily"], stderr="Command failed"
+        )
+
+        result = run_command(["ccusage", "daily"])
+
+        assert result == {}
