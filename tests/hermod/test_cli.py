@@ -243,12 +243,14 @@ def test_submit_command_success(tmp_path):
         # Mock gh auth status (success)
         # Mock gh workflow run (success)
         from unittest.mock import MagicMock
+
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
         with patch("hermod.cli.Path.glob") as mock_glob:
             mock_glob.return_value = [submission_file]
 
             from typer.testing import CliRunner
+
             from hermod.cli import app
 
             runner = CliRunner()
@@ -261,9 +263,9 @@ def test_submit_command_success(tmp_path):
 
 def test_submit_command_no_gh_cli():
     """Test submit command fails gracefully when gh CLI not installed."""
-    import shutil
     with patch("shutil.which", return_value=None):
         from typer.testing import CliRunner
+
         from hermod.cli import app
 
         runner = CliRunner()
@@ -275,14 +277,15 @@ def test_submit_command_no_gh_cli():
 
 def test_submit_command_gh_not_authenticated():
     """Test submit command fails when gh CLI not authenticated."""
-    import shutil
     with patch("shutil.which", return_value="/usr/local/bin/gh"):
         with patch("hermod.cli.subprocess.run") as mock_run:
             # gh auth status returns non-zero when not authenticated
             from unittest.mock import MagicMock
+
             mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="not logged in")
 
             from typer.testing import CliRunner
+
             from hermod.cli import app
 
             runner = CliRunner()
@@ -294,14 +297,15 @@ def test_submit_command_gh_not_authenticated():
 
 def test_submit_command_no_submission_file():
     """Test submit command fails when no submission file found."""
-    import shutil
     with patch("shutil.which", return_value="/usr/local/bin/gh"):
         with patch("hermod.cli.subprocess.run") as mock_run:
             from unittest.mock import MagicMock
+
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
             with patch("hermod.cli.Path.glob", return_value=[]):
                 from typer.testing import CliRunner
+
                 from hermod.cli import app
 
                 runner = CliRunner()

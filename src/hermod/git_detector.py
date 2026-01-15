@@ -28,8 +28,7 @@ def get_git_user_email() -> str:
         return result.stdout.strip()
     except subprocess.CalledProcessError:
         raise RuntimeError(
-            "Git user.email not configured. "
-            "Run: git config --global user.email 'you@example.com'"
+            "Git user.email not configured. Run: git config --global user.email 'you@example.com'"
         ) from None
 
 
