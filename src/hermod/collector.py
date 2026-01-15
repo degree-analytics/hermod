@@ -159,7 +159,9 @@ def collect_usage(
     }
 
 
-def save_submission(data: Dict[str, Any], developer: str, output_dir: Path = None) -> Path:
+def save_submission(
+    data: Dict[str, Any], developer: str, output_dir: Optional[Path] = None
+) -> Path:
     """Save submission data to JSON file.
 
     Args:

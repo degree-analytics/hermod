@@ -50,7 +50,7 @@ DEVELOPER_NAME_PATTERN = re.compile(
 )
 
 
-def version_callback(value: bool):
+def version_callback(value: bool) -> None:
     """Show version and exit."""
     if value:
         console.print(f"Hermod version: {__version__}")
@@ -67,7 +67,7 @@ def main(
         callback=version_callback,
         is_eager=True,
     ),
-):
+) -> None:
     """Hermod - AI usage collection tool."""
     pass
 
@@ -105,7 +105,7 @@ def collect(
             f"range {MIN_COMMAND_TIMEOUT_SECONDS}-{MAX_COMMAND_TIMEOUT_SECONDS})."
         ),
     ),
-):
+) -> None:
     """Collect AI usage data from ccusage and ccusage-codex."""
     # Validate developer name if provided
     if developer is not None:
@@ -240,7 +240,7 @@ def submit(
         "--submission-dir",
         help="Directory containing submission files (default: data/ai_usage/submissions)",
     ),
-):
+) -> None:
     """Submit AI usage data to GitHub Actions workflow.
 
     This command:

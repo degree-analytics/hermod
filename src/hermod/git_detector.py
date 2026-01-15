@@ -58,7 +58,7 @@ def get_git_user_name() -> Optional[str]:
         return None
 
 
-def load_developer_mappings() -> dict:
+def load_developer_mappings() -> dict[str, dict[str, str]]:
     """Load developer name mappings from config file.
 
     Returns:
