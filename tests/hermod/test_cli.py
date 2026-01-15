@@ -15,6 +15,17 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+def test_version_flag_shows_version() -> None:
+    """Test --version flag displays the current package version."""
+    from hermod.__version__ import __version__
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert __version__ in result.stdout
+
+
 def test_collect_command_with_defaults(runner: CliRunner) -> None:
     """Test collect command with default values."""
     with patch("hermod.cli.detect_developer", return_value="Chad"):
@@ -313,3 +324,278 @@ def test_submit_command_no_submission_file():
 
                 assert result.exit_code == 1
                 assert "No submission file found" in result.stdout
+
+
+# === Additional coverage tests ===
+
+
+def test_collect_command_invalid_developer_json_output():
+    """Test invalid developer name error in JSON output mode."""
+    runner = CliRunner()
+    result = runner.invoke(app, ["collect", "--developer", "user@invalid.com", "--json"])
+
+    assert result.exit_code == 1
+    # JSON output contains error key with the message
+    assert '"error"' in result.stdout
+    assert "Invalid developer name" in result.stdout
+
+
+def test_collect_command_missing_deps_json_output():
+    """Test missing dependencies error in JSON output mode."""
+    with patch(
+        "hermod.cli.check_all_dependencies",
+        return_value={"ccusage": False, "ccusage-codex": False},
+    ):
+        runner = CliRunner()
+        result = runner.invoke(app, ["collect", "--developer", "Test", "--json"])
+
+        assert result.exit_code == 1
+        output = json.loads(result.stdout)
+        assert "error" in output
+        assert "Dependencies not installed" in output["error"]
+
+
+def test_collect_command_developer_detection_failure_json():
+    """Test developer auto-detection failure in JSON output mode."""
+    with patch(
+        "hermod.cli.check_all_dependencies",
+        return_value={"ccusage": True, "ccusage-codex": True},
+    ):
+        with patch("hermod.cli.detect_developer", side_effect=RuntimeError("Git not configured")):
+            runner = CliRunner()
+            result = runner.invoke(app, ["collect", "--json"])
+
+            assert result.exit_code == 1
+            output = json.loads(result.stdout)
+            assert "error" in output
+            assert "Failed to detect developer" in output["error"]
+
+
+def test_collect_command_auto_detect_invalid_name_json():
+    """Test auto-detected invalid developer name in JSON output mode."""
+    with patch(
+        "hermod.cli.check_all_dependencies",
+        return_value={"ccusage": True, "ccusage-codex": True},
+    ):
+        with patch("hermod.cli.detect_developer", return_value="!!!invalid!!!"):
+            runner = CliRunner()
+            result = runner.invoke(app, ["collect", "--json"])
+
+            assert result.exit_code == 1
+            # JSON output contains error key with the message
+            assert '"error"' in result.stdout
+            assert "invalid" in result.stdout.lower()
+
+
+def test_collect_command_usage_collection_failure_json():
+    """Test usage collection failure in JSON output mode."""
+    with patch(
+        "hermod.cli.check_all_dependencies",
+        return_value={"ccusage": True, "ccusage-codex": True},
+    ):
+        with patch("hermod.cli.detect_developer", return_value="TestDev"):
+            with patch("hermod.cli.collect_usage", side_effect=Exception("ccusage failed")):
+                runner = CliRunner()
+                result = runner.invoke(app, ["collect", "--json"])
+
+                assert result.exit_code == 1
+                output = json.loads(result.stdout)
+                assert "error" in output
+                assert "Failed to collect usage data" in output["error"]
+
+
+def test_collect_command_save_failure_json():
+    """Test save submission failure in JSON output mode."""
+
+    mock_data = {
+        "metadata": {"date_range": {"start": "2026-01-01", "end": "2026-01-07"}},
+        "claude_code": {},
+        "codex": {},
+    }
+
+    with patch(
+        "hermod.cli.check_all_dependencies",
+        return_value={"ccusage": True, "ccusage-codex": True},
+    ):
+        with patch("hermod.cli.detect_developer", return_value="TestDev"):
+            with patch("hermod.cli.collect_usage", return_value=mock_data):
+                with patch("hermod.cli.save_submission", side_effect=Exception("Disk full")):
+                    runner = CliRunner()
+                    result = runner.invoke(app, ["collect", "--json"])
+
+                    assert result.exit_code == 1
+                    output = json.loads(result.stdout)
+                    assert "error" in output
+                    assert "Failed to save submission" in output["error"]
+
+
+def test_collect_command_shows_env_timeout(monkeypatch):
+    """Test that env var timeout is displayed in output."""
+    from pathlib import Path
+
+    monkeypatch.setenv("HERMOD_COMMAND_TIMEOUT_SECONDS", "120")
+
+    mock_data = {
+        "metadata": {"date_range": {"start": "2026-01-01", "end": "2026-01-07"}},
+        "claude_code": {"totals": {"totalCost": 1.50}},
+        "codex": {"totals": {"totalCost": 0.50}},
+    }
+
+    with patch(
+        "hermod.cli.check_all_dependencies",
+        return_value={"ccusage": True, "ccusage-codex": True},
+    ):
+        with patch("hermod.cli.detect_developer", return_value="TestDev"):
+            with patch("hermod.cli.collect_usage", return_value=mock_data):
+                with patch(
+                    "hermod.cli.save_submission",
+                    return_value=Path("data/submissions/test.json"),
+                ):
+                    runner = CliRunner()
+                    result = runner.invoke(app, ["collect"])
+
+                    assert result.exit_code == 0
+                    assert "HERMOD_COMMAND_TIMEOUT_SECONDS" in result.stdout
+
+
+def test_collect_command_codex_cost_usd_fallback():
+    """Test codex costUSD fallback when totalCost is missing."""
+    from pathlib import Path
+
+    mock_data = {
+        "metadata": {"date_range": {"start": "2026-01-01", "end": "2026-01-07"}},
+        "claude_code": {"totals": {"totalCost": 1.50}},
+        "codex": {"totals": {"costUSD": 0.75}},  # Note: costUSD not totalCost
+    }
+
+    with patch(
+        "hermod.cli.check_all_dependencies",
+        return_value={"ccusage": True, "ccusage-codex": True},
+    ):
+        with patch("hermod.cli.detect_developer", return_value="TestDev"):
+            with patch("hermod.cli.collect_usage", return_value=mock_data):
+                with patch(
+                    "hermod.cli.save_submission",
+                    return_value=Path("data/submissions/test.json"),
+                ):
+                    runner = CliRunner()
+                    result = runner.invoke(app, ["collect"])
+
+                    assert result.exit_code == 0
+                    assert "$0.75" in result.stdout or "0.75" in result.stdout
+
+
+def test_submit_command_gh_auth_timeout():
+    """Test submit command handles gh auth timeout."""
+    import subprocess
+
+    with patch("shutil.which", return_value="/usr/bin/gh"):
+        with patch("hermod.cli.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh auth status", timeout=10)
+
+            runner = CliRunner()
+            result = runner.invoke(app, ["submit"])
+
+            assert result.exit_code == 1
+            assert "timed out" in result.stdout.lower()
+
+
+def test_submit_command_invalid_json_file(tmp_path):
+    """Test submit command handles invalid JSON in submission file."""
+    from unittest.mock import MagicMock
+
+    # Create invalid JSON file
+    submission_dir = tmp_path / "submissions"
+    submission_dir.mkdir()
+    invalid_file = submission_dir / "ai_usage_test_20260115_120000.json"
+    invalid_file.write_text("not valid json {{{")
+
+    with patch("shutil.which", return_value="/usr/bin/gh"):
+        with patch("hermod.cli.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+
+            runner = CliRunner()
+            result = runner.invoke(app, ["submit", "--submission-dir", str(submission_dir)])
+
+            assert result.exit_code == 1
+            assert "Invalid submission file format" in result.stdout
+
+
+def test_submit_command_workflow_trigger_failure(tmp_path):
+    """Test submit command handles workflow trigger failure."""
+    from unittest.mock import MagicMock
+
+    # Create valid submission file
+    submission_dir = tmp_path / "submissions"
+    submission_dir.mkdir()
+    valid_file = submission_dir / "ai_usage_test_20260115_120000.json"
+    valid_file.write_text('{"metadata": {"developer": "TestDev"}}')
+
+    with patch("shutil.which", return_value="/usr/bin/gh"):
+        with patch("hermod.cli.subprocess.run") as mock_run:
+            # First call: gh auth status succeeds
+            # Second call: gh workflow run fails
+            mock_run.side_effect = [
+                MagicMock(returncode=0),  # auth status
+                MagicMock(returncode=1, stderr=b"workflow not found"),  # workflow run
+            ]
+
+            runner = CliRunner()
+            result = runner.invoke(app, ["submit", "--submission-dir", str(submission_dir)])
+
+            assert result.exit_code == 1
+            assert "Failed to submit" in result.stdout
+
+
+def test_submit_command_workflow_timeout(tmp_path):
+    """Test submit command handles workflow trigger timeout."""
+    import subprocess
+    from unittest.mock import MagicMock
+
+    # Create valid submission file
+    submission_dir = tmp_path / "submissions"
+    submission_dir.mkdir()
+    valid_file = submission_dir / "ai_usage_test_20260115_120000.json"
+    valid_file.write_text('{"metadata": {"developer": "TestDev"}}')
+
+    with patch("shutil.which", return_value="/usr/bin/gh"):
+        with patch("hermod.cli.subprocess.run") as mock_run:
+            # First call: gh auth status succeeds
+            # Second call: gh workflow run times out
+            mock_run.side_effect = [
+                MagicMock(returncode=0),  # auth status
+                subprocess.TimeoutExpired(cmd="gh workflow run", timeout=30),  # workflow run
+            ]
+
+            runner = CliRunner()
+            result = runner.invoke(app, ["submit", "--submission-dir", str(submission_dir)])
+
+            assert result.exit_code == 1
+            assert "timed out" in result.stdout.lower()
+
+
+def test_submit_command_repo_view_failure_fallback(tmp_path):
+    """Test submit command handles repo view failure gracefully."""
+    import subprocess
+    from unittest.mock import MagicMock
+
+    # Create valid submission file
+    submission_dir = tmp_path / "submissions"
+    submission_dir.mkdir()
+    valid_file = submission_dir / "ai_usage_test_20260115_120000.json"
+    valid_file.write_text('{"metadata": {"developer": "TestDev"}}')
+
+    with patch("shutil.which", return_value="/usr/bin/gh"):
+        with patch("hermod.cli.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0),  # auth status
+                MagicMock(returncode=0),  # workflow run
+                subprocess.CalledProcessError(1, "gh repo view"),  # repo view fails
+            ]
+
+            runner = CliRunner()
+            result = runner.invoke(app, ["submit", "--submission-dir", str(submission_dir)])
+
+            assert result.exit_code == 0
+            assert "Submitted" in result.stdout
+            assert "GitHub Actions" in result.stdout  # Fallback text
